@@ -227,6 +227,7 @@ export const CommitHistoryPlugin = () => {
     setCurrentCommitIndex(-1)
     setSelectedCommitIndex(null)
     localStorage.removeItem('commits')
+    setShowDiff(false)
     editor.update(() => {
       $getRoot().clear()
     })
