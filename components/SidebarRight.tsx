@@ -1,11 +1,5 @@
 import * as React from 'react'
-import { DatePicker } from '@/components/DatePicker'
-import {
-  Sidebar,
-  SidebarContent,
-  SidebarFooter,
-  SidebarHeader,
-} from '@/components/ui/sidebar'
+import { Sidebar, SidebarContent, SidebarHeader } from '@/components/ui/sidebar'
 import { CommitHistoryPlugin } from '@/plugins/CommitHistoryPlugin'
 
 export function SidebarRight({
@@ -23,9 +17,6 @@ export function SidebarRight({
       <SidebarContent>
         <CommitHistoryPlugin />
       </SidebarContent>
-      <SidebarFooter className="border-t">
-        <DatePicker />
-      </SidebarFooter>
     </Sidebar>
   )
 }

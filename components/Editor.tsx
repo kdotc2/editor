@@ -9,13 +9,15 @@ import { HeadingNode } from '@lexical/rich-text'
 import { CodeHighlightNode, CodeNode } from '@lexical/code'
 import { AutoFocusPlugin } from '@lexical/react/LexicalAutoFocusPlugin'
 import { ToolbarPlugin } from '@/plugins/ToolbarPlugin'
-import { EditorThemeClasses } from 'lexical'
-import { useState } from 'react'
+import { $getRoot, EditorThemeClasses } from 'lexical'
+import { useState, useEffect } from 'react'
 import { CustomOnChangePlugin } from '@/plugins/CustomOnChangePlugin'
 import { SidebarRight } from '@/components/SidebarRight'
 import { EditorProvider, useEditor } from '@/context/EditorContext'
 import { EditableTogglePlugin } from '@/plugins/EditablePlugin'
 import { Input } from '@/components/ui/input'
+import { SidebarLeft } from '@/components/SidebarLeft'
+import { useLexicalComposerContext } from '@lexical/react/LexicalComposerContext'
 
 const theme: EditorThemeClasses = {
   text: {
@@ -47,52 +49,77 @@ export const initialConfig = {
 
 function EditorInner() {
   const [, setValue] = useState('')
-  const { showDiff, title, setTitle } = useEditor()
+  const {
+    showDiff,
+    title,
+    setTitle,
+    currentDocumentId,
+    documents,
+    loadDocument,
+  } = useEditor()
+  const [editor] = useLexicalComposerContext()
+
+  useEffect(() => {
+    if (documents.length > 0 && !currentDocumentId) {
+      loadDocument(documents[0].id)
+    }
+  }, [documents, currentDocumentId, loadDocument])
+
+  useEffect(() => {
+    if (currentDocumentId) {
+      // Clear editor when switching documents
+      editor.update(() => {
+        $getRoot().clear()
+      })
+      setTitle(title || 'Untitled Document')
+    }
+  }, [currentDocumentId, editor, setTitle])
 
   return (
-    <LexicalComposer initialConfig={initialConfig}>
-      <div className="flex">
-        <div className="relative flex flex-col justify-between max-w-[1056px] p-4 gap-4 mx-auto w-full">
-          <Input
-            type="text"
-            value={title ?? ''}
-            placeholder="Untitled Document"
-            onChange={(e) => setTitle(e.target.value)}
-            className="font-bold p-0 focus-visible:ring-1 focus-visible:ring-offset-0 field-sizing-content shadow-none border-none w-fit px-2 max-w-full"
-            readOnly={showDiff}
+    <div className="flex">
+      <SidebarLeft />
+      <div className="relative flex flex-col justify-between max-w-[1056px] p-4 gap-4 mx-auto w-full">
+        <Input
+          type="text"
+          value={title ?? ''}
+          placeholder="Untitled Document"
+          onChange={(e) => setTitle(e.target.value)}
+          className="font-bold p-0 focus-visible:ring-1 focus-visible:ring-offset-0 field-sizing-content shadow-none border-none w-fit px-2 max-w-full"
+          readOnly={showDiff}
+        />
+        <ToolbarPlugin />
+        <div className="relative flex flex-1 border p-4 rounded-md transition-all overflow-y-auto">
+          <RichTextPlugin
+            contentEditable={
+              <ContentEditable
+                className="outline-none flex-1"
+                readOnly={showDiff}
+              />
+            }
+            placeholder={
+              <p className="pointer-events-none absolute top-4 left-4 text-muted-foreground">
+                Start typing content here...
+              </p>
+            }
+            ErrorBoundary={LexicalErrorBoundary}
           />
-          <ToolbarPlugin />
-          <div className="relative flex flex-1 border p-4 rounded-md transition-all overflow-y-auto">
-            <RichTextPlugin
-              contentEditable={
-                <ContentEditable
-                  className="outline-none flex-1"
-                  readOnly={showDiff}
-                />
-              }
-              placeholder={
-                <p className="pointer-events-none absolute top-4 left-4 text-muted-foreground">
-                  Start typing content here...
-                </p>
-              }
-              ErrorBoundary={LexicalErrorBoundary}
-            />
-          </div>
         </div>
-        <SidebarRight />
       </div>
+      <SidebarRight />
       <AutoFocusPlugin />
       <HistoryPlugin />
       <EditableTogglePlugin />
       <CustomOnChangePlugin onChange={(newValue) => setValue(newValue)} />
-    </LexicalComposer>
+    </div>
   )
 }
 
 export function Editor() {
   return (
-    <EditorProvider>
-      <EditorInner />
-    </EditorProvider>
+    <LexicalComposer initialConfig={initialConfig}>
+      <EditorProvider>
+        <EditorInner />
+      </EditorProvider>
+    </LexicalComposer>
   )
 }

@@ -1,24 +1,248 @@
 'use client'
 
-import { createContext, useContext, useState } from 'react'
+import {
+  createContext,
+  useContext,
+  useState,
+  useCallback,
+  useEffect,
+} from 'react'
+
+interface Document {
+  id: string
+  title: string
+  lastModified: Date
+}
+
+interface Commit {
+  id: string
+  timestamp: Date
+  text: string
+  editorState: string
+  message?: string
+  title: string
+}
+
+type StoredDocument = Omit<Document, 'lastModified'> & { lastModified: string }
+type StoredCommit = Omit<Commit, 'timestamp'> & { timestamp: string }
 
 const EditorContext = createContext<{
   showDiff: boolean
   setShowDiff: (val: boolean) => void
   title: string
   setTitle: (val: string) => void
+  currentDocumentId: string | null
+  documents: Document[]
+  setDocuments: (documents: Document[]) => void
+  createNewDocument: () => string
+  loadDocument: (docId: string) => void
+  deleteDocument: (docId: string) => void
+  getCurrentDocumentCommits: () => Commit[]
+  saveCommit: (commit: Omit<Commit, 'id' | 'timestamp'>) => Commit | undefined
 }>({
   showDiff: false,
   setShowDiff: () => {},
   title: 'Untitled Document',
   setTitle: () => {},
+  currentDocumentId: null,
+  setDocuments: () => {},
+  documents: [],
+  createNewDocument: () => '',
+  loadDocument: () => {},
+  deleteDocument: () => {},
+  getCurrentDocumentCommits: () => [],
+  saveCommit: () => undefined,
 })
+
+const getLocalStorageItem = (key: string): string | null => {
+  if (typeof window !== 'undefined') {
+    return localStorage.getItem(key)
+  }
+  return null
+}
+
+const setLocalStorageItem = (key: string, value: string): void => {
+  if (typeof window !== 'undefined') {
+    localStorage.setItem(key, value)
+  }
+}
 
 export const EditorProvider = ({ children }: { children: React.ReactNode }) => {
   const [showDiff, setShowDiff] = useState(false)
   const [title, setTitle] = useState('Untitled Document')
+  const [currentDocumentId, setCurrentDocumentId] = useState<string | null>(
+    null
+  )
+  const [documents, setDocuments] = useState<Document[]>([])
+
+  useEffect(() => {
+    const savedDocuments = getLocalStorageItem('documents')
+    if (savedDocuments) {
+      try {
+        const parsedDocuments: StoredDocument[] = JSON.parse(savedDocuments)
+        const documentsWithDates = parsedDocuments.map((doc) => ({
+          ...doc,
+          lastModified: new Date(doc.lastModified),
+        }))
+        setDocuments(documentsWithDates)
+
+        // Load first document if none is selected
+        if (documentsWithDates.length > 0 && !currentDocumentId) {
+          loadDocument(documentsWithDates[0].id)
+        }
+      } catch (e) {
+        console.error('Failed to parse saved documents', e)
+      }
+    }
+  }, [])
+
+  const createNewDocument = useCallback((): string => {
+    const newDoc = {
+      id: Date.now().toString(),
+      title: 'Untitled Document',
+      lastModified: new Date(),
+    }
+
+    const updatedDocuments = [...documents, newDoc]
+    setDocuments(updatedDocuments)
+    setLocalStorageItem(
+      'documents',
+      JSON.stringify(
+        updatedDocuments.map((doc) => ({
+          ...doc,
+          lastModified: doc.lastModified.toISOString(),
+        }))
+      )
+    )
+
+    setCurrentDocumentId(newDoc.id)
+    setTitle(newDoc.title)
+    setShowDiff(false)
+    setLocalStorageItem(`commits-${newDoc.id}`, JSON.stringify([]))
+
+    return newDoc.id
+  }, [documents])
+
+  const loadDocument = useCallback(
+    (docId: string) => {
+      const doc = documents.find((d) => d.id === docId)
+      if (doc) {
+        setCurrentDocumentId(docId)
+        setTitle(doc.title)
+        setShowDiff(false)
+        return true
+      }
+      return false
+    },
+    [documents]
+  )
+
+  const deleteDocument = useCallback(
+    (docId: string) => {
+      const updatedDocuments = documents.filter((doc) => doc.id !== docId)
+      setDocuments(updatedDocuments)
+      setLocalStorageItem(
+        'documents',
+        JSON.stringify(
+          updatedDocuments.map((doc) => ({
+            ...doc,
+            lastModified: doc.lastModified.toISOString(),
+          }))
+        )
+      )
+      localStorage.removeItem(`commits-${docId}`)
+
+      if (currentDocumentId === docId) {
+        setCurrentDocumentId(null)
+        setTitle('Untitled Document')
+      }
+    },
+    [documents, currentDocumentId]
+  )
+
+  const getCurrentDocumentCommits = useCallback((): Commit[] => {
+    if (!currentDocumentId) return []
+
+    const savedCommits = getLocalStorageItem(`commits-${currentDocumentId}`)
+    if (savedCommits) {
+      try {
+        const parsedCommits: StoredCommit[] = JSON.parse(savedCommits)
+        return parsedCommits.map((commit) => ({
+          ...commit,
+          timestamp: new Date(commit.timestamp),
+        }))
+      } catch (e) {
+        console.error('Failed to parse commits', e)
+      }
+    }
+    return []
+  }, [currentDocumentId])
+
+  const saveCommit = useCallback(
+    (commit: Omit<Commit, 'id' | 'timestamp'>): Commit | undefined => {
+      if (!currentDocumentId) return undefined
+
+      const newCommit: Commit = {
+        ...commit,
+        id: Date.now().toString(),
+        timestamp: new Date(),
+      }
+
+      const currentCommits = getCurrentDocumentCommits()
+      const updatedCommits = [...currentCommits, newCommit]
+
+      setLocalStorageItem(
+        `commits-${currentDocumentId}`,
+        JSON.stringify(
+          updatedCommits.map((c) => ({
+            ...c,
+            timestamp: c.timestamp.toISOString(),
+          }))
+        )
+      )
+
+      const updatedDocuments = documents.map((doc) =>
+        doc.id === currentDocumentId
+          ? {
+              ...doc,
+              lastModified: new Date(),
+              title: commit.title || doc.title,
+            }
+          : doc
+      )
+      setDocuments(updatedDocuments)
+      setLocalStorageItem(
+        'documents',
+        JSON.stringify(
+          updatedDocuments.map((doc) => ({
+            ...doc,
+            lastModified: doc.lastModified.toISOString(),
+          }))
+        )
+      )
+
+      return newCommit
+    },
+    [currentDocumentId, documents, getCurrentDocumentCommits]
+  )
+
   return (
-    <EditorContext.Provider value={{ showDiff, setShowDiff, title, setTitle }}>
+    <EditorContext.Provider
+      value={{
+        showDiff,
+        setShowDiff,
+        title,
+        setTitle,
+        currentDocumentId,
+        setDocuments,
+        documents,
+        createNewDocument,
+        loadDocument,
+        deleteDocument,
+        getCurrentDocumentCommits,
+        saveCommit,
+      }}
+    >
       {children}
     </EditorContext.Provider>
   )
