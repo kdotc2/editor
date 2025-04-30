@@ -49,21 +49,8 @@ export const initialConfig = {
 
 function EditorInner() {
   const [, setValue] = useState('')
-  const {
-    showDiff,
-    title,
-    setTitle,
-    currentDocumentId,
-    documents,
-    loadDocument,
-  } = useEditor()
+  const { showDiff, title, setTitle, currentDocumentId } = useEditor()
   const [editor] = useLexicalComposerContext()
-
-  useEffect(() => {
-    if (documents.length > 0 && !currentDocumentId) {
-      loadDocument(documents[0].id)
-    }
-  }, [documents, currentDocumentId, loadDocument])
 
   useEffect(() => {
     if (currentDocumentId) {

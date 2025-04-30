@@ -74,7 +74,9 @@ export const EditorProvider = ({ children }: { children: React.ReactNode }) => {
     null
   )
   const [documents, setDocuments] = useState<Document[]>([])
+  const [hasInitialized, setHasInitialized] = useState(false)
 
+  // Load documents and current document from localStorage
   useEffect(() => {
     const savedDocuments = getLocalStorageItem('documents')
     if (savedDocuments) {
@@ -86,15 +88,35 @@ export const EditorProvider = ({ children }: { children: React.ReactNode }) => {
         }))
         setDocuments(documentsWithDates)
 
-        // Load first document if none is selected
-        if (documentsWithDates.length > 0 && !currentDocumentId) {
-          loadDocument(documentsWithDates[0].id)
+        // Try to load the last viewed document
+        const lastDocumentId = getLocalStorageItem('currentDocumentId')
+        if (
+          lastDocumentId &&
+          documentsWithDates.some((doc) => doc.id === lastDocumentId)
+        ) {
+          setCurrentDocumentId(lastDocumentId)
+          const lastDoc = documentsWithDates.find(
+            (doc) => doc.id === lastDocumentId
+          )
+          if (lastDoc) setTitle(lastDoc.title)
+        } else if (documentsWithDates.length > 0) {
+          // Fallback to first document if no last document found
+          setCurrentDocumentId(documentsWithDates[0].id)
+          setTitle(documentsWithDates[0].title)
         }
       } catch (e) {
         console.error('Failed to parse saved documents', e)
       }
     }
+    setHasInitialized(true)
   }, [])
+
+  // Update localStorage when currentDocumentId changes
+  useEffect(() => {
+    if (currentDocumentId) {
+      setLocalStorageItem('currentDocumentId', currentDocumentId)
+    }
+  }, [currentDocumentId])
 
   const createNewDocument = useCallback((): string => {
     const newDoc = {
@@ -127,7 +149,7 @@ export const EditorProvider = ({ children }: { children: React.ReactNode }) => {
     (docId: string) => {
       const doc = documents.find((d) => d.id === docId)
       if (doc) {
-        setCurrentDocumentId(docId)
+        setCurrentDocumentId(doc.id)
         setTitle(doc.title)
         setShowDiff(false)
         return true
