@@ -20,15 +20,33 @@ export function SidebarLeft({
     deleteDocument,
     documents,
     currentDocumentId,
-    setDocuments, // Now available from context
+    setDocuments,
+    setCurrentDocumentId,
   } = useEditor()
   const [editor] = useLexicalComposerContext()
 
   const handleNewDocument = () => {
-    createNewDocument()
+    // Get current editor state before creating new doc
+    let currentEditorState = ''
     editor.update(() => {
-      $getRoot().clear()
+      currentEditorState = JSON.stringify(editor.getEditorState())
     })
+
+    const newDocId = createNewDocument()
+    setCurrentDocumentId(newDocId)
+
+    // Apply the saved state to the new document
+    if (currentEditorState) {
+      setTimeout(() => {
+        try {
+          const parsedState = editor.parseEditorState(currentEditorState)
+          editor.setEditorState(parsedState)
+        } catch (e) {
+          console.error('Failed to restore editor state', e)
+        }
+      }, 100)
+    }
+
     toast.success('New document created')
   }
 
@@ -45,6 +63,9 @@ export function SidebarLeft({
 
     // Delete the document first
     deleteDocument(docId)
+    editor.update(() => {
+      $getRoot().clear()
+    })
 
     // Show undo toast
     toast('Document has been deleted', {

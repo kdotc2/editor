@@ -32,6 +32,7 @@ const EditorContext = createContext<{
   title: string
   setTitle: (val: string) => void
   currentDocumentId: string | null
+  setCurrentDocumentId: (val: string | null) => void
   documents: Document[]
   setDocuments: (documents: Document[]) => void
   createNewDocument: () => string
@@ -45,6 +46,7 @@ const EditorContext = createContext<{
   title: 'Untitled Document',
   setTitle: () => {},
   currentDocumentId: null,
+  setCurrentDocumentId: () => {},
   setDocuments: () => {},
   documents: [],
   createNewDocument: () => '',
@@ -54,7 +56,7 @@ const EditorContext = createContext<{
   saveCommit: () => undefined,
 })
 
-const getLocalStorageItem = (key: string): string | null => {
+export const getLocalStorageItem = (key: string): string | null => {
   if (typeof window !== 'undefined') {
     return localStorage.getItem(key)
   }
@@ -74,7 +76,7 @@ export const EditorProvider = ({ children }: { children: React.ReactNode }) => {
     null
   )
   const [documents, setDocuments] = useState<Document[]>([])
-  const [hasInitialized, setHasInitialized] = useState(false)
+  const [, setHasInitialized] = useState(false)
 
   // Load documents and current document from localStorage
   useEffect(() => {
@@ -118,10 +120,37 @@ export const EditorProvider = ({ children }: { children: React.ReactNode }) => {
     }
   }, [currentDocumentId])
 
+  const getCurrentDocumentCommits = useCallback((): Commit[] => {
+    if (!currentDocumentId) return []
+
+    const savedCommits = getLocalStorageItem(`commits-${currentDocumentId}`)
+    if (savedCommits) {
+      try {
+        const parsedCommits: StoredCommit[] = JSON.parse(savedCommits)
+        return parsedCommits.map((commit) => ({
+          ...commit,
+          timestamp: new Date(commit.timestamp),
+        }))
+      } catch (e) {
+        console.error('Failed to parse commits', e)
+      }
+    }
+    return []
+  }, [currentDocumentId])
+
   const createNewDocument = useCallback((): string => {
+    // Get current editor state before creating new doc
+    let currentEditorState = ''
+    if (currentDocumentId) {
+      const commits = getCurrentDocumentCommits()
+      if (commits.length > 0) {
+        currentEditorState = commits[commits.length - 1].editorState
+      }
+    }
+
     const newDoc = {
       id: Date.now().toString(),
-      title: 'Untitled Document',
+      title: title || 'Untitled Document',
       lastModified: new Date(),
     }
 
@@ -137,13 +166,30 @@ export const EditorProvider = ({ children }: { children: React.ReactNode }) => {
       )
     )
 
+    // Set up the new document with the current editor state
+    if (currentEditorState) {
+      setLocalStorageItem(
+        `commits-${newDoc.id}`,
+        JSON.stringify([
+          {
+            id: 'initial',
+            timestamp: new Date().toISOString(),
+            text: '', // Will be updated on first commit
+            editorState: currentEditorState,
+            title: newDoc.title,
+          },
+        ])
+      )
+    } else {
+      setLocalStorageItem(`commits-${newDoc.id}`, JSON.stringify([]))
+    }
+
     setCurrentDocumentId(newDoc.id)
-    setTitle(newDoc.title)
+    // Title is already preserved
     setShowDiff(false)
-    setLocalStorageItem(`commits-${newDoc.id}`, JSON.stringify([]))
 
     return newDoc.id
-  }, [documents])
+  }, [documents, title, currentDocumentId, getCurrentDocumentCommits])
 
   const loadDocument = useCallback(
     (docId: string) => {
@@ -182,27 +228,14 @@ export const EditorProvider = ({ children }: { children: React.ReactNode }) => {
     [documents, currentDocumentId]
   )
 
-  const getCurrentDocumentCommits = useCallback((): Commit[] => {
-    if (!currentDocumentId) return []
-
-    const savedCommits = getLocalStorageItem(`commits-${currentDocumentId}`)
-    if (savedCommits) {
-      try {
-        const parsedCommits: StoredCommit[] = JSON.parse(savedCommits)
-        return parsedCommits.map((commit) => ({
-          ...commit,
-          timestamp: new Date(commit.timestamp),
-        }))
-      } catch (e) {
-        console.error('Failed to parse commits', e)
-      }
-    }
-    return []
-  }, [currentDocumentId])
-
   const saveCommit = useCallback(
     (commit: Omit<Commit, 'id' | 'timestamp'>): Commit | undefined => {
-      if (!currentDocumentId) return undefined
+      let docId = currentDocumentId
+
+      // If no document exists, create one automatically
+      if (!docId) {
+        docId = createNewDocument()
+      }
 
       const newCommit: Commit = {
         ...commit,
@@ -214,7 +247,7 @@ export const EditorProvider = ({ children }: { children: React.ReactNode }) => {
       const updatedCommits = [...currentCommits, newCommit]
 
       setLocalStorageItem(
-        `commits-${currentDocumentId}`,
+        `commits-${docId}`,
         JSON.stringify(
           updatedCommits.map((c) => ({
             ...c,
@@ -223,8 +256,9 @@ export const EditorProvider = ({ children }: { children: React.ReactNode }) => {
         )
       )
 
+      // Update documents list
       const updatedDocuments = documents.map((doc) =>
-        doc.id === currentDocumentId
+        doc.id === docId
           ? {
               ...doc,
               lastModified: new Date(),
@@ -232,6 +266,16 @@ export const EditorProvider = ({ children }: { children: React.ReactNode }) => {
             }
           : doc
       )
+
+      // If document was just created, add it to the list
+      if (!documents.some((doc) => doc.id === docId)) {
+        updatedDocuments.push({
+          id: docId,
+          title: commit.title || 'Untitled Document',
+          lastModified: new Date(),
+        })
+      }
+
       setDocuments(updatedDocuments)
       setLocalStorageItem(
         'documents',
@@ -245,7 +289,7 @@ export const EditorProvider = ({ children }: { children: React.ReactNode }) => {
 
       return newCommit
     },
-    [currentDocumentId, documents, getCurrentDocumentCommits]
+    [currentDocumentId, documents, getCurrentDocumentCommits, createNewDocument]
   )
 
   return (
@@ -256,6 +300,7 @@ export const EditorProvider = ({ children }: { children: React.ReactNode }) => {
         title,
         setTitle,
         currentDocumentId,
+        setCurrentDocumentId,
         setDocuments,
         documents,
         createNewDocument,
