@@ -139,18 +139,9 @@ export const EditorProvider = ({ children }: { children: React.ReactNode }) => {
   }, [currentDocumentId])
 
   const createNewDocument = useCallback((): string => {
-    // Get current editor state before creating new doc
-    let currentEditorState = ''
-    if (currentDocumentId) {
-      const commits = getCurrentDocumentCommits()
-      if (commits.length > 0) {
-        currentEditorState = commits[commits.length - 1].editorState
-      }
-    }
-
     const newDoc = {
       id: Date.now().toString(),
-      title: title || 'Untitled Document',
+      title: 'Untitled Document', // Default title (can be overwritten later)
       lastModified: new Date(),
     }
 
@@ -166,30 +157,14 @@ export const EditorProvider = ({ children }: { children: React.ReactNode }) => {
       )
     )
 
-    // Set up the new document with the current editor state
-    if (currentEditorState) {
-      setLocalStorageItem(
-        `commits-${newDoc.id}`,
-        JSON.stringify([
-          {
-            id: 'initial',
-            timestamp: new Date().toISOString(),
-            text: '', // Will be updated on first commit
-            editorState: currentEditorState,
-            title: newDoc.title,
-          },
-        ])
-      )
-    } else {
-      setLocalStorageItem(`commits-${newDoc.id}`, JSON.stringify([]))
-    }
+    // Always start with empty commit history
+    setLocalStorageItem(`commits-${newDoc.id}`, JSON.stringify([]))
 
     setCurrentDocumentId(newDoc.id)
-    // Title is already preserved
     setShowDiff(false)
 
     return newDoc.id
-  }, [documents, title, currentDocumentId, getCurrentDocumentCommits])
+  }, [documents])
 
   const loadDocument = useCallback(
     (docId: string) => {

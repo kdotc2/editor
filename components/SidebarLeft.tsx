@@ -7,7 +7,7 @@ import { Plus, Trash2 } from 'lucide-react'
 import { useEditor } from '@/context/EditorContext'
 import { toast } from 'sonner'
 import { useLexicalComposerContext } from '@lexical/react/LexicalComposerContext'
-import { $getRoot } from 'lexical'
+import { $createParagraphNode, $getRoot } from 'lexical'
 import { Card } from '@/components/ui/card'
 import { cn } from '@/lib/utils'
 
@@ -22,47 +22,73 @@ export function SidebarLeft({
     currentDocumentId,
     setDocuments,
     setCurrentDocumentId,
+    title,
+    setTitle,
   } = useEditor()
   const [editor] = useLexicalComposerContext()
 
+  // Helper function to safely set editor state
+  const safeSetEditorState = (editorState: string): boolean => {
+    try {
+      const parsedState = editor.parseEditorState(editorState)
+      let isValid = false
+      parsedState.read(() => {
+        isValid = !$getRoot().isEmpty()
+      })
+      if (isValid) {
+        editor.setEditorState(parsedState)
+        return true
+      }
+    } catch (e) {
+      console.error('Error parsing editor state', e)
+    }
+    return false
+  }
+
   const handleNewDocument = () => {
-    // Get current editor state before creating new doc
-    let currentEditorState = ''
-    let hasContent = false
+    const isFirstDocument = documents.length === 0
 
-    // Get current editor content safely
-    editor.update(() => {
-      const root = $getRoot()
-      // Proper way to check if editor has content
-      hasContent = root.getTextContent().trim().length > 0
-      if (hasContent) {
-        currentEditorState = JSON.stringify(editor.getEditorState())
-      }
-    })
+    if (isFirstDocument) {
+      // For first document - preserve content if it exists
+      const currentTitle = title
+      let currentEditorState = ''
+      let hasContent = false
 
-    const newDocId = createNewDocument()
-    setCurrentDocumentId(newDocId)
+      editor.update(() => {
+        hasContent = $getRoot().getTextContent().trim().length > 0
+        if (hasContent) {
+          currentEditorState = JSON.stringify(editor.getEditorState())
+        }
+      })
 
-    // Only restore state if there was content
-    if (hasContent && currentEditorState) {
-      try {
+      const newDocId = createNewDocument()
+      setCurrentDocumentId(newDocId)
+
+      // Only restore if we had content
+      if (hasContent && currentEditorState) {
         setTimeout(() => {
-          editor.update(() => {
-            const parsedState = editor.parseEditorState(currentEditorState)
-            // Additional check to ensure valid state
-            if (
-              parsedState.read(
-                () => $getRoot().getTextContent().trim().length > 0
-              )
-            ) {
-              editor.setEditorState(parsedState)
-            }
-          })
-        }, 100)
-      } catch (e) {
-        console.error('Failed to restore editor state', e)
-        toast.error('Failed to preserve content in new document')
+          if (!safeSetEditorState(currentEditorState)) {
+            // Fallback to empty document if restoration fails
+            editor.update(() => {
+              $getRoot().clear()
+              $getRoot().append($createParagraphNode())
+            })
+          }
+          setTitle(currentTitle)
+        }, 50)
       }
+    } else {
+      // For subsequent documents - create fresh empty document
+      const newDocId = createNewDocument()
+      setCurrentDocumentId(newDocId)
+
+      setTimeout(() => {
+        editor.update(() => {
+          $getRoot().clear()
+          $getRoot().append($createParagraphNode())
+        })
+        setTitle('Untitled Document')
+      }, 50)
     }
 
     toast.success('New document created')
@@ -127,6 +153,7 @@ export function SidebarLeft({
       },
     })
   }
+
   return (
     <Sidebar className="border-r-0" {...props}>
       <SidebarHeader className="border-sidebar-border border-b text-sm font-semibold p-3">
