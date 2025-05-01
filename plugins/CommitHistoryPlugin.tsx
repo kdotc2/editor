@@ -16,6 +16,7 @@ import { Card } from '@/components/ui/card'
 import { useEditor } from '@/context/EditorContext'
 import { toast } from 'sonner'
 import { diff_match_patch, DIFF_INSERT, DIFF_DELETE } from 'diff-match-patch'
+import { Check, X } from 'lucide-react'
 
 interface Commit {
   id: string
@@ -278,6 +279,7 @@ export const CommitHistoryPlugin = () => {
           variant="success"
           disabled={!hasText || showDiff}
         >
+          <Check />
           Commit Changes
         </Button>
 
@@ -342,6 +344,7 @@ export const CommitHistoryPlugin = () => {
           variant="destructive"
           className="m-3"
         >
+          <X />
           Clear History
         </Button>
       )}

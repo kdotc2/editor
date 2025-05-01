@@ -3,7 +3,7 @@
 import * as React from 'react'
 import { Sidebar, SidebarContent, SidebarHeader } from '@/components/ui/sidebar'
 import { Button } from '@/components/ui/button'
-import { Plus, Trash } from 'lucide-react'
+import { Plus, Trash2 } from 'lucide-react'
 import { useEditor } from '@/context/EditorContext'
 import { toast } from 'sonner'
 import { useLexicalComposerContext } from '@lexical/react/LexicalComposerContext'
@@ -28,23 +28,41 @@ export function SidebarLeft({
   const handleNewDocument = () => {
     // Get current editor state before creating new doc
     let currentEditorState = ''
+    let hasContent = false
+
+    // Get current editor content safely
     editor.update(() => {
-      currentEditorState = JSON.stringify(editor.getEditorState())
+      const root = $getRoot()
+      // Proper way to check if editor has content
+      hasContent = root.getTextContent().trim().length > 0
+      if (hasContent) {
+        currentEditorState = JSON.stringify(editor.getEditorState())
+      }
     })
 
     const newDocId = createNewDocument()
     setCurrentDocumentId(newDocId)
 
-    // Apply the saved state to the new document
-    if (currentEditorState) {
-      setTimeout(() => {
-        try {
-          const parsedState = editor.parseEditorState(currentEditorState)
-          editor.setEditorState(parsedState)
-        } catch (e) {
-          console.error('Failed to restore editor state', e)
-        }
-      }, 100)
+    // Only restore state if there was content
+    if (hasContent && currentEditorState) {
+      try {
+        setTimeout(() => {
+          editor.update(() => {
+            const parsedState = editor.parseEditorState(currentEditorState)
+            // Additional check to ensure valid state
+            if (
+              parsedState.read(
+                () => $getRoot().getTextContent().trim().length > 0
+              )
+            ) {
+              editor.setEditorState(parsedState)
+            }
+          })
+        }, 100)
+      } catch (e) {
+        console.error('Failed to restore editor state', e)
+        toast.error('Failed to preserve content in new document')
+      }
     }
 
     toast.success('New document created')
@@ -138,27 +156,25 @@ export function SidebarLeft({
               )}
               onClick={() => loadDocument(doc.id)}
             >
-              <div className="flex justify-between items-start">
-                <div>
+              <div>
+                <div className="flex justify-between">
                   <p className="text-xs text-muted-foreground">
                     {doc.lastModified.toLocaleString()}
                   </p>
-                  <p className="truncate font-semibold">
-                    {doc.title || 'Untitled Document'}
-                  </p>
+                  <Button
+                    size="smallIcon"
+                    variant="transparent"
+                    onClick={(e) => {
+                      e.stopPropagation()
+                      handleDeleteDocument(doc.id)
+                    }}
+                  >
+                    <Trash2 className="text-destructive" />
+                  </Button>
                 </div>
-                <Button
-                  variant="ghost"
-                  size="sm"
-                  className="h-8 w-8 p-0"
-                  onClick={(e) => {
-                    e.stopPropagation()
-                    handleDeleteDocument(doc.id)
-                  }}
-                  title="Delete document"
-                >
-                  <Trash className="h-4 w-4 text-destructive" />
-                </Button>
+                <p className="truncate font-semibold">
+                  {doc.title || 'Untitled Document'}
+                </p>
               </div>
             </Card>
           ))}
