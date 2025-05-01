@@ -16,6 +16,7 @@ import { Card } from '@/components/ui/card'
 import { useEditor } from '@/context/EditorContext'
 import { toast } from 'sonner'
 import { diff_match_patch, DIFF_INSERT, DIFF_DELETE } from 'diff-match-patch'
+import { Check, X } from 'lucide-react'
 
 interface Commit {
   id: string
@@ -35,7 +36,16 @@ export const CommitHistoryPlugin = () => {
     null
   )
   const [hasText, setHasText] = useState(false)
-  const { showDiff, setShowDiff, title, setTitle } = useEditor()
+
+  const {
+    showDiff,
+    setShowDiff,
+    title,
+    setTitle,
+    currentDocumentId,
+    saveCommit,
+    getCurrentDocumentCommits,
+  } = useEditor()
 
   useEffect(() => {
     return editor.registerUpdateListener(({ editorState }) => {
@@ -47,29 +57,28 @@ export const CommitHistoryPlugin = () => {
   }, [editor])
 
   useEffect(() => {
-    const savedCommits = localStorage.getItem('commits')
-    if (savedCommits) {
-      try {
-        const parsedCommits = JSON.parse(savedCommits)
-        const commitsWithDates = parsedCommits.map((commit: Commit) => ({
-          ...commit,
-          timestamp: new Date(commit.timestamp),
-        }))
-        setCommits(commitsWithDates)
-        const lastIndex = commitsWithDates.length - 1
-        setCurrentCommitIndex(lastIndex)
-        setSelectedCommitIndex(lastIndex)
-
-        // Restore the editor state immediately
-        const commit = commitsWithDates[lastIndex]
-        const editorState = editor.parseEditorState(commit.editorState)
-        editor.setEditorState(editorState)
-        setTitle(commit.title)
-      } catch (e) {
-        console.error('Failed to parse saved commits', e)
-      }
+    if (!currentDocumentId) {
+      setCommits([])
+      setCurrentCommitIndex(-1)
+      setSelectedCommitIndex(null)
+      return
     }
-  }, [editor, setTitle])
+
+    const loadedCommits = getCurrentDocumentCommits()
+    setCommits(loadedCommits)
+
+    if (loadedCommits.length > 0) {
+      const lastIndex = loadedCommits.length - 1
+      setCurrentCommitIndex(lastIndex)
+      setSelectedCommitIndex(lastIndex)
+
+      // Restore the editor state
+      const commit = loadedCommits[lastIndex]
+      const editorState = editor.parseEditorState(commit.editorState)
+      editor.setEditorState(editorState)
+      setTitle(commit.title)
+    }
+  }, [currentDocumentId, editor, setTitle, getCurrentDocumentCommits])
 
   const createCommit = useCallback(async () => {
     return new Promise<{ editorState: string; text: string }>((resolve) => {
@@ -82,36 +91,51 @@ export const CommitHistoryPlugin = () => {
   }, [editor])
 
   const commitChanges = useCallback(async () => {
-    if (!editor) return
+    if (!editor || !currentDocumentId) {
+      toast.error('No document selected')
+      return
+    }
+
     if (currentCommitIndex < commits.length - 1) {
       toast('Only the most recent commit can commit changes.')
       return
     }
 
     const { editorState, text } = await createCommit()
-    const newCommit: Commit = {
-      id: Date.now().toString(),
-      timestamp: new Date(),
-      text,
-      editorState,
-      title,
-      message: commitMessage || `Update at ${new Date().toLocaleTimeString()}`,
+    const commitTitle = title || 'Untitled Document'
+
+    try {
+      const newCommit = saveCommit({
+        text,
+        editorState,
+        title: commitTitle,
+        message:
+          commitMessage || `Update at ${new Date().toLocaleTimeString()}`,
+      })
+
+      if (newCommit) {
+        setCommits((prev) => [...prev, newCommit])
+        setCurrentCommitIndex(commits.length)
+        setSelectedCommitIndex(commits.length)
+        setCommitMessage('')
+        setShowDiff(false)
+        toast.success('Changes committed successfully')
+      }
+    } catch (error) {
+      toast.error('Failed to save commit')
+      console.error('Commit error:', error)
     }
-
-    setCommits((prev) => {
-      const newCommits =
-        currentCommitIndex < prev.length - 1
-          ? [...prev.slice(0, currentCommitIndex + 1), newCommit]
-          : [...prev, newCommit]
-
-      localStorage.setItem('commits', JSON.stringify(newCommits))
-      setCurrentCommitIndex(newCommits.length - 1)
-      return newCommits
-    })
-
-    setCommitMessage('')
-    setShowDiff(false)
-  }, [createCommit, currentCommitIndex, editor, commitMessage, title])
+  }, [
+    editor,
+    currentDocumentId,
+    title,
+    commitMessage,
+    commits.length,
+    currentCommitIndex,
+    saveCommit,
+    createCommit,
+    setShowDiff,
+  ])
 
   const applyDiffToEditor = useCallback(
     (currentIndex: number) => {
@@ -210,28 +234,32 @@ export const CommitHistoryPlugin = () => {
           editor.setEditorState(editorState)
         } catch (e) {
           console.error('Failed to restore commit', e)
+          toast.error('Failed to restore commit')
         }
       }
     },
-    [commits, editor, showDiff, applyDiffToEditor]
+    [commits, editor, showDiff, applyDiffToEditor, setTitle]
   )
 
   useEffect(() => {
     if (selectedCommitIndex !== null) {
       restoreCommit(selectedCommitIndex)
     }
-  }, [showDiff])
+  }, [showDiff, selectedCommitIndex, restoreCommit])
 
   const clearHistory = useCallback(() => {
+    if (!currentDocumentId) return
+
     setCommits([])
     setCurrentCommitIndex(-1)
     setSelectedCommitIndex(null)
-    localStorage.removeItem('commits')
+    localStorage.removeItem(`commits-${currentDocumentId}`)
     setShowDiff(false)
     editor.update(() => {
       $getRoot().clear()
     })
-  }, [editor])
+    toast.success('Commit history cleared')
+  }, [editor, currentDocumentId, setShowDiff])
 
   return (
     <div className="h-full flex flex-col">
@@ -241,7 +269,7 @@ export const CommitHistoryPlugin = () => {
           onChange={(e) => setCommitMessage(e.target.value)}
           placeholder="Commit message (optional)"
           className="flex-1 px-3 py-2 text-sm resize-none field-sizing-content min-h-fit"
-          onKeyDown={(e) => e.key === 'Enter' && commitChanges()}
+          onKeyDown={(e) => e.key === 'Enter' && !e.shiftKey && commitChanges()}
           disabled={showDiff}
         />
 
@@ -251,6 +279,7 @@ export const CommitHistoryPlugin = () => {
           variant="success"
           disabled={!hasText || showDiff}
         >
+          <Check />
           Commit Changes
         </Button>
 
@@ -287,25 +316,21 @@ export const CommitHistoryPlugin = () => {
                   key={commit.id}
                   onClick={() => restoreCommit(index)}
                   className={cn(
-                    'cursor-pointer transition-colors',
+                    'cursor-pointer transition-colors text-xs',
                     index === currentCommitIndex
                       ? 'bg-success/10'
                       : 'hover:bg-success/10 '
                   )}
                 >
-                  <div className="text-xs">
-                    <div className="flex justify-between">
-                      <p className="text-muted-foreground mt-1">
-                        {commit.timestamp.toLocaleString()}
-                      </p>
-                      <span className="text-muted-foreground">
-                        #{index + 1}
-                      </span>
-                    </div>
-                    <p className="font-medium">
-                      {commit.message || `Commit ${index + 1}`}
+                  <div className="flex justify-between">
+                    <p className="text-muted-foreground mt-1">
+                      {commit.timestamp.toLocaleString()}
                     </p>
+                    <span className="text-muted-foreground">#{index + 1}</span>
                   </div>
+                  <p className="font-medium">
+                    {commit.message || `Commit ${index + 1}`}
+                  </p>
                 </Card>
               )
             })
@@ -319,6 +344,7 @@ export const CommitHistoryPlugin = () => {
           variant="destructive"
           className="m-3"
         >
+          <X />
           Clear History
         </Button>
       )}
